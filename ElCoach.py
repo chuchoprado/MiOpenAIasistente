@@ -25,9 +25,9 @@ def fetch_data(spreadsheet_id, category=None, tag=None):
 
     except Exception as e:
         return {"error": f"Error al recuperar datos: {str(e)}"}
+        @app.route("/")
 def home():
-    """Ruta base para verificar si el servicio está activo."""
-    return "✅ El servicio está funcionando correctamente."
+    return jsonify({"message": "ElCoach API está funcionando correctamente"}), 200
 
 @app.route("/fetch_data", methods=["POST"])
 def fetch_data_endpoint():

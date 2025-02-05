@@ -16,11 +16,8 @@ def home():
     return "✅ El servidor está activo y funcionando correctamente."
 
 def fetch_data(spreadsheet_id, categoria=None, etiqueta=None):
-    """Obtiene datos de Google Sheets según la categoría y etiqueta, ignorando acentos y eliminando el # en etiquetas."""
+    """Obtiene datos de Google Sheets según la categoría y etiqueta."""
     try:
-        print(f"📥 Recibido: Spreadsheet ID={spreadsheet_id}, Categoria={categoria}, Etiqueta={etiqueta}")
-
-        # Configurar acceso a Google Sheets
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
         client = gspread.authorize(credentials)
@@ -29,26 +26,28 @@ def fetch_data(spreadsheet_id, categoria=None, etiqueta=None):
         sheet = client.open_by_key(spreadsheet_id).sheet1
         records = sheet.get_all_records()
 
-        print(f"📊 Total de registros obtenidos: {len(records)}")
+        # Normalizar entrada y comparación
+        categoria = unidecode(categoria.lower().strip()) if categoria else None
+        etiqueta = unidecode(etiqueta.lower().strip()) if etiqueta else None
 
-        def limpiar_etiqueta(etiqueta_str):
-            """Elimina el # de las etiquetas y normaliza el texto"""
-            etiquetas_limpias = [unidecode(tag.strip("#").lower()) for tag in etiqueta_str.split()]
-            return etiquetas_limpias
+        filtered_data = []
+        for row in records:
+            # Normalizar los valores en la hoja
+            row_categoria = unidecode(str(row.get("Categoría", "")).lower().strip())
+            row_etiqueta = unidecode(str(row.get("Etiqueta", "")).lower().strip())
 
-        # Aplicar filtros
-        filtered_data = [
-            row for row in records
-            if (categoria is None or unidecode(str(row.get("Categoría", "")).lower()) == unidecode(categoria.lower())) and
-               (etiqueta is None or any(unidecode(etiqueta.lower()) in limpiar_etiqueta(row["Etiqueta"])))
-        ]
+            # Verificar si la categoría coincide
+            categoria_match = categoria is None or row_categoria == categoria
 
-        print(f"🔍 Resultados encontrados: {len(filtered_data)}")
+            # Verificar si la etiqueta está contenida en la lista de etiquetas
+            etiqueta_match = etiqueta is None or any(etiqueta in etiq for etiq in row_etiqueta.split())
+
+            if categoria_match and etiqueta_match:
+                filtered_data.append(row)
 
         return filtered_data if filtered_data else [{"message": "No se encontraron resultados"}]
 
     except Exception as e:
-        print(f"❌ Error al recuperar datos: {str(e)}")
         return {"error": f"Error al recuperar datos: {str(e)}"}
 
 @app.route("/fetch_data", methods=["POST"])

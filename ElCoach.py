@@ -1,10 +1,18 @@
 import gspread
 from flask import Flask, request, jsonify
 from oauth2client.service_account import ServiceAccountCredentials
+import os
 
+# Inicializar Flask
 app = Flask(__name__)
 
-CREDENTIALS_FILE = "/etc/secrets/credentials.json"  # Archivo secreto en Render
+# Ruta al archivo de credenciales en Render
+CREDENTIALS_FILE = "/etc/secrets/credentials.json"
+
+@app.route("/")
+def home():
+    """Endpoint raíz para comprobar que el servidor Flask está activo."""
+    return "✅ El servidor está activo y funcionando correctamente."
 
 def fetch_data(spreadsheet_id, categoria=None, etiqueta=None):
     """Obtiene datos de Google Sheets según la categoría y etiqueta en español."""
@@ -13,17 +21,18 @@ def fetch_data(spreadsheet_id, categoria=None, etiqueta=None):
         credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
         client = gspread.authorize(credentials)
 
+        # Abrir la hoja de cálculo por ID
         sheet = client.open_by_key(spreadsheet_id).sheet1
         records = sheet.get_all_records()
 
-        # Filtrar los datos con nombres de columna en español
+        # Filtrar los datos según categoría y etiqueta
         filtered_data = [
             row for row in records
-            if (categoria is None or row["Categoría"].lower() == categoria.lower())
-            and (etiqueta is None or etiqueta.lower() in row["Etiqueta"].lower())
+            if (categoria is None or str(row.get("Categoría", "")).lower() == categoria.lower()) and
+               (etiqueta is None or etiqueta.lower() in str(row.get("Etiqueta", "")).lower())
         ]
 
-        return filtered_data
+        return filtered_data if filtered_data else [{"message": "No se encontraron resultados para la búsqueda"}]
 
     except Exception as e:
         return {"error": f"Error al recuperar datos: {str(e)}"}
@@ -33,8 +42,8 @@ def fetch_data_endpoint():
     """Recibe la solicitud de OpenAI y devuelve los datos filtrados de Google Sheets."""
     data = request.json
     spreadsheet_id = data.get("spreadsheet_id")
-    categoria = data.get("category")  # Mapeamos category -> categoría
-    etiqueta = data.get("tag")  # Mapeamos tag -> etiqueta
+    categoria = data.get("category")  # Convertimos de inglés a español
+    etiqueta = data.get("tag")  # Convertimos de inglés a español
 
     if not spreadsheet_id:
         return jsonify({"error": "spreadsheet_id es requerido"}), 400
@@ -43,4 +52,5 @@ def fetch_data_endpoint():
     return jsonify(results)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)

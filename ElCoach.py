@@ -15,7 +15,7 @@ def home():
     return "✅ El servidor está activo y funcionando correctamente."
 
 def fetch_data(spreadsheet_id, categoria=None, etiqueta=None):
-    """Obtiene datos de Google Sheets según la categoría y etiqueta."""
+    """Obtiene datos de Google Sheets según la categoría y etiqueta en español."""
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
@@ -29,7 +29,7 @@ def fetch_data(spreadsheet_id, categoria=None, etiqueta=None):
         filtered_data = [
             row for row in records
             if (categoria is None or str(row.get("Categoría", "")).lower() == categoria.lower()) and
-               (etiqueta is None or etiqueta.lower() in str(row.get("Etiqueta", "")).lower())
+               (etiqueta is None or etiqueta.lower() in str(row.get("Etiqueta", "")).lower())  # 🔥 Esta es la línea corregida
         ]
 
         return filtered_data if filtered_data else [{"message": "No se encontraron resultados"}]

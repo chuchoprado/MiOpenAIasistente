@@ -35,7 +35,7 @@ def fetch_data(spreadsheet_id, hoja=None, categoria=None, etiqueta=None):
         # Filtrar los datos según categoría y etiqueta
         filtered_data = [
             row for row in records
-            if (categoria is None or str(row.get("Categoría", "")).lower() == categoria.lower()) and
+            if (categoria is None or str(row.get("Categoria", "")).lower() == categoria.lower()) and
                (etiqueta is None or etiqueta.lower() in str(row.get("Etiqueta", "")).lower())
         ]
 

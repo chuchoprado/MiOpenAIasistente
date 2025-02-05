@@ -3,45 +3,48 @@ from flask import Flask, request, jsonify
 from oauth2client.service_account import ServiceAccountCredentials
 import os
 
+# Inicializar Flask
 app = Flask(__name__)
 
-# 📌 Ruta al archivo de credenciales (en Render, configúralo como variable de entorno)
+# Ruta al archivo de credenciales en Render
 CREDENTIALS_FILE = "/etc/secrets/credentials.json"
-
-# 📌 ID de tu Google Spreadsheet (reemplázalo con el correcto)
-SPREADSHEET_ID = "1ooixOlYScf6Wi0_7mT0UBEc9bESC7gnDfnyo0LLEcCE"
+SPREADSHEET_ID = "1ooixOlYScf6Wi0_7mT0UBEc9bESC7gnDfnyo0LLEcCE"  # Tu Spreadsheet ID
 
 def fetch_data_from_sheets(query=None, category=None):
-    """Extrae datos de Google Sheets basado en la consulta."""
+    """Obtiene datos de todas las hojas dentro del Google Spreadsheet."""
     try:
-        # Autenticación con Google Sheets
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
         client = gspread.authorize(credentials)
 
         # Abrir la hoja de cálculo
-        sheet = client.open_by_key(SPREADSHEET_ID).sheet1  # Ajusta si tienes varias hojas
-        records = sheet.get_all_records()
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+        all_sheets = spreadsheet.worksheets()  # Obtiene todas las hojas
 
-        # Filtrar resultados
-        filtered_data = [
-            row for row in records
-            if (query is None or query.lower() in str(row.get("Etiqueta", "")).lower()) and
-               (category is None or row.get("Categoría", "").lower() == category.lower())
-        ]
+        results = []
 
-        return filtered_data if filtered_data else [{"message": "No se encontraron resultados"}]
+        for sheet in all_sheets:
+            data = sheet.get_all_records()
+            print(f"📌 Revisando hoja: {sheet.title} - {len(data)} registros")  # Debugging
+
+            # Filtrar resultados en cada hoja
+            filtered_data = [
+                row for row in data
+                if (query is None or query.lower() in str(row.get("Etiqueta", "")).lower()) and
+                   (category is None or row.get("Categoría", "").lower() == category.lower())
+            ]
+
+            results.extend(filtered_data)
+
+        print("🔍 Datos filtrados:", results)  # Debugging
+        return results if results else [{"message": "No se encontraron resultados"}]
 
     except Exception as e:
         return {"error": f"Error al recuperar datos: {str(e)}"}
 
-@app.route("/", methods=["GET"])
-def home():
-    return "✅ Servidor en Render funcionando correctamente."
-
 @app.route("/fetch_data", methods=["POST"])
-def fetch_data():
-    """Recibe la consulta desde OpenAI y responde con los datos de Google Sheets."""
+def fetch_data_endpoint():
+    """Recibe la solicitud de OpenAI y devuelve los datos filtrados de Google Sheets."""
     data = request.json
     query = data.get("query")
     category = data.get("category")

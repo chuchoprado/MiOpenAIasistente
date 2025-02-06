@@ -35,22 +35,26 @@ def fetch_data(spreadsheet_id, categoria=None, etiqueta=None):
             etiqueta = f"#{etiqueta}"
 
         filtered_data = []
+        
+        # DEBUG: Ver qué datos está obteniendo la API
+        print(f"Datos obtenidos de Google Sheets: {records}")
+
         for row in records:
-            # Normalizar los valores en la hoja
-            row_categoria = unidecode(str(row.get("Categoría", "")).lower().strip())
-            row_etiqueta = unidecode(str(row.get("Etiqueta", "")).lower().strip())
+            # Normalizar los valores en la hoja y eliminar espacios en claves
+            row_clean = {key.strip(): value for key, value in row.items()}
+            
+            row_categoria = unidecode(str(row_clean.get("Categoría", "")).lower().strip())
+            row_etiqueta = unidecode(str(row_clean.get("Etiqueta", "")).lower().strip())
 
             # Separar etiquetas en lista para comparar
             etiquetas_lista = [tag.strip() for tag in row_etiqueta.split()]
 
             # Verificar coincidencias
             categoria_match = categoria is None or row_categoria == categoria
-            etiqueta_match = etiqueta is None or etiqueta in etiquetas_lista
+            etiqueta_match = etiqueta is None or any(etiqueta in etiq for etiq in etiquetas_lista)
 
             if categoria_match and etiqueta_match:
-                # Normalizar claves eliminando espacios extra
-                clean_row = {key.strip(): value for key, value in row.items()}
-                filtered_data.append(clean_row)
+                filtered_data.append(row_clean)
 
         return filtered_data if filtered_data else [{"message": "No se encontraron resultados"}]
 

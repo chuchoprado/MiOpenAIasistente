@@ -2,77 +2,73 @@ import gspread
 from flask import Flask, request, jsonify
 from oauth2client.service_account import ServiceAccountCredentials
 import os
-from unidecode import unidecode  # Normaliza acentos
+from unidecode import unidecode  # Normalize accents
 
-# Inicializar Flask
+# Initialize Flask
 app = Flask(__name__)
 
-# Ruta al archivo de credenciales en Render
+# Path to credentials file in Render
 CREDENTIALS_FILE = "/etc/secrets/credentials.json"
 
 @app.route("/")
 def home():
-    """Endpoint raíz para comprobar que el servidor Flask está activo."""
-    return "✅ El servidor está activo y funcionando correctamente."
+    """Root endpoint to check if Flask server is running."""
+    return "✅ Server is up and running correctly."
 
-def fetch_data(spreadsheet_id, categoria=None, etiqueta=None):
-    """Obtiene datos de Google Sheets según la categoría y etiqueta."""
+def fetch_data(spreadsheet_id, category=None, tag=None):
+    """Fetches data from Google Sheets based on category and tag."""
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
         client = gspread.authorize(credentials)
 
-        # Abrir la hoja de cálculo por ID
+        # Open the spreadsheet by ID
         sheet = client.open_by_key(spreadsheet_id).sheet1
         records = sheet.get_all_records()
 
-        # Normalizar entrada y comparación
-        categoria = unidecode(categoria.lower().strip()) if categoria else None
-        etiqueta = unidecode(etiqueta.lower().strip()) if etiqueta else None
+        # Normalize input and comparison
+        category = unidecode(category.lower().strip()) if category else None
+        tag = unidecode(tag.lower().strip()) if tag else None
 
-        # Asegurar que la etiqueta tenga #
-        if etiqueta and not etiqueta.startswith("#"):
-            etiqueta = f"#{etiqueta}"
+        # Ensure tag has #
+        if tag and not tag.startswith("#"):
+            tag = f"#{tag}"
 
         filtered_data = []
-        
-        # DEBUG: Ver qué datos está obteniendo la API
-        print(f"Datos obtenidos de Google Sheets: {records}")
-
         for row in records:
-            # Normalizar los valores en la hoja y eliminar espacios en claves
-            row_clean = {key.strip(): value for key, value in row.items()}
-            
-            row_categoria = unidecode(str(row_clean.get("Categoría", "")).lower().strip())
-            row_etiqueta = unidecode(str(row_clean.get("Etiqueta", "")).lower().strip())
+            # Normalize spreadsheet values
+            row_category = unidecode(str(row.get("Category", "")).lower().strip())
+            row_tags = unidecode(str(row.get("Tag", "")).lower().strip())
 
-            # Separar etiquetas en lista para comparar
-            etiquetas_lista = [tag.strip() for tag in row_etiqueta.split()]
+            # Split tags into a list
+            tag_list = [t.strip() for t in row_tags.split()]
 
-            # Verificar coincidencias
-            categoria_match = categoria is None or row_categoria == categoria
-            etiqueta_match = etiqueta is None or any(etiqueta in etiq for etiq in etiquetas_lista)
+            # Check for matches
+            category_match = category is None or row_category == category
+            tag_match = tag is None or tag in tag_list
 
-            if categoria_match and etiqueta_match:
-                filtered_data.append(row_clean)
+            if category_match and tag_match:
+                # Clean row keys by stripping extra spaces
+                clean_row = {key.strip(): value for key, value in row.items()}
+                filtered_data.append(clean_row)
 
-        return filtered_data if filtered_data else [{"message": "No se encontraron resultados"}]
+        return filtered_data if filtered_data else [{"message": "No results found"}]
 
     except Exception as e:
-        return {"error": f"Error al recuperar datos: {str(e)}"}
+        return {"error": f"Error fetching data: {str(e)}"}
 
 @app.route("/fetch_data", methods=["POST"])
 def fetch_data_endpoint():
-    """Recibe la solicitud de OpenAI y devuelve los datos filtrados de Google Sheets."""
+    """Receives request from OpenAI and returns filtered data from Google Sheets."""
     data = request.json
     spreadsheet_id = data.get("spreadsheet_id")
-    categoria = data.get("category")  # Convertimos de inglés a español
-    etiqueta = data.get("tag")  # Convertimos de inglés a español
+    category = data.get("category")
+    tag = data.get("tag")
 
     if not spreadsheet_id:
-        return jsonify({"error": "spreadsheet_id es requerido"}), 400
+        return jsonify({"error": "spreadsheet_id is required"}), 400
 
-    results = fetch_data(spreadsheet_id, categoria, etiqueta)
+    results = fetch_data(spreadsheet_id, category, tag)
     return jsonify(results)
 
 if __name__ == "__main__":

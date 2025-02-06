@@ -30,17 +30,22 @@ def fetch_data(spreadsheet_id, categoria=None, etiqueta=None):
         categoria = unidecode(categoria.lower().strip()) if categoria else None
         etiqueta = unidecode(etiqueta.lower().strip()) if etiqueta else None
 
+        # Asegurar que la etiqueta tenga #
+        if etiqueta and not etiqueta.startswith("#"):
+            etiqueta = f"#{etiqueta}"
+
         filtered_data = []
         for row in records:
             # Normalizar los valores en la hoja
             row_categoria = unidecode(str(row.get("Categoría", "")).lower().strip())
             row_etiqueta = unidecode(str(row.get("Etiqueta", "")).lower().strip())
 
-            # Verificar si la categoría coincide
-            categoria_match = categoria is None or row_categoria == categoria
+            # Separar etiquetas en lista para comparar
+            etiquetas_lista = [tag.strip() for tag in row_etiqueta.split()]
 
-            # Verificar si la etiqueta está contenida en la lista de etiquetas
-            etiqueta_match = etiqueta is None or any(etiqueta in etiq for etiq in row_etiqueta.split())
+            # Verificar coincidencias
+            categoria_match = categoria is None or row_categoria == categoria
+            etiqueta_match = etiqueta is None or etiqueta in etiquetas_lista
 
             if categoria_match and etiqueta_match:
                 filtered_data.append(row)

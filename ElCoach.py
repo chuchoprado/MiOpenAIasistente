@@ -2,71 +2,71 @@ import gspread
 from flask import Flask, request, jsonify
 from oauth2client.service_account import ServiceAccountCredentials
 import os
-from unidecode import unidecode  # Normalize accents
+from unidecode import unidecode  # Normaliza acentos
 
-# Initialize Flask
+# Inicializar Flask
 app = Flask(__name__)
 
-# Path to credentials file in Render
+# Ruta al archivo de credenciales en Render
 CREDENTIALS_FILE = "/etc/secrets/credentials.json"
 
 @app.route("/")
 def home():
-    """Root endpoint to check if Flask server is running."""
-    return "✅ Server is up and running correctly."
+    """Endpoint raíz para comprobar que el servidor Flask está activo."""
+    return "✅ El servidor está activo y funcionando correctamente."
 
 def fetch_data(spreadsheet_id, category=None, tag=None):
-    """Fetches data from Google Sheets based on category and tag."""
+    """Obtiene datos de Google Sheets según la categoría y etiqueta."""
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
         client = gspread.authorize(credentials)
 
-        # Open the spreadsheet by ID
+        # Abrir la hoja de cálculo por ID
         sheet = client.open_by_key(spreadsheet_id).sheet1
         records = sheet.get_all_records()
 
-        # Normalize input and comparison
+        # Normalizar entrada y comparación
         category = unidecode(category.lower().strip()) if category else None
         tag = unidecode(tag.lower().strip()) if tag else None
 
-        # Ensure tag has #
+        # Asegurar que la etiqueta tenga #
         if tag and not tag.startswith("#"):
             tag = f"#{tag}"
 
         filtered_data = []
         for row in records:
-            # Normalize spreadsheet values
-            row_category = unidecode(str(row.get("Category", "")).lower().strip())
-            row_tags = unidecode(str(row.get("Tag", "")).lower().strip())
+            # Normalizar los valores en la hoja (manteniendo contenido en español)
+            row_category = unidecode(str(row.get("Category", "")).lower().strip())  # "Category" es el título en inglés
+            row_tags = unidecode(str(row.get("Tag", "")).lower().strip())  # "Tag" es el título en inglés
 
-            # Split tags into a list
+            # Separar etiquetas en lista para comparar
             tag_list = [t.strip() for t in row_tags.split()]
 
-            # Check for matches
+            # Verificar coincidencias (el contenido sigue en español)
             category_match = category is None or row_category == category
             tag_match = tag is None or tag in tag_list
 
             if category_match and tag_match:
-                # Clean row keys by stripping extra spaces
+                # Limpia claves eliminando espacios extra
                 clean_row = {key.strip(): value for key, value in row.items()}
                 filtered_data.append(clean_row)
 
-        return filtered_data if filtered_data else [{"message": "No results found"}]
+        return filtered_data if filtered_data else [{"message": "No se encontraron resultados"}]
 
     except Exception as e:
-        return {"error": f"Error fetching data: {str(e)}"}
+        return {"error": f"Error al recuperar datos: {str(e)}"}
 
 @app.route("/fetch_data", methods=["POST"])
 def fetch_data_endpoint():
-    """Receives request from OpenAI and returns filtered data from Google Sheets."""
+    """Recibe la solicitud de OpenAI y devuelve los datos filtrados de Google Sheets."""
     data = request.json
     spreadsheet_id = data.get("spreadsheet_id")
-    category = data.get("category")
-    tag = data.get("tag")
+    category = data.get("category")  # Sigue en español
+    tag = data.get("tag")  # Sigue en español
 
     if not spreadsheet_id:
-        return jsonify({"error": "spreadsheet_id is required"}), 400
+        return jsonify({"error": "spreadsheet_id es requerido"}), 400
 
     results = fetch_data(spreadsheet_id, category, tag)
     return jsonify(results)

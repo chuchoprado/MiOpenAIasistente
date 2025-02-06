@@ -36,14 +36,14 @@ def fetch_data(spreadsheet_id, category=None, tag=None):
 
         filtered_data = []
         for row in records:
-            # Normalizar los valores en la hoja (manteniendo contenido en español)
-            row_category = unidecode(str(row.get("Category", "")).lower().strip())  # "Category" es el título en inglés
-            row_tags = unidecode(str(row.get("Tag", "")).lower().strip())  # "Tag" es el título en inglés
+            # Normalizar los valores en la hoja
+            row_category = unidecode(str(row.get("Category", "")).lower().strip())
+            row_tags = unidecode(str(row.get("Tag", "")).lower().strip())
 
             # Separar etiquetas en lista para comparar
             tag_list = [t.strip() for t in row_tags.split()]
 
-            # Verificar coincidencias (el contenido sigue en español)
+            # Verificar coincidencias
             category_match = category is None or row_category == category
             tag_match = tag is None or tag in tag_list
 
@@ -52,25 +52,27 @@ def fetch_data(spreadsheet_id, category=None, tag=None):
                 clean_row = {key.strip(): value for key, value in row.items()}
                 filtered_data.append(clean_row)
 
-        return filtered_data if filtered_data else [{"message": "No se encontraron resultados"}]
+        # OpenAI requiere una estructura clara, se devuelve en "results"
+        return jsonify({"results": filtered_data}) if filtered_data else jsonify({"message": "No se encontraron resultados"})
 
     except Exception as e:
-        return {"error": f"Error al recuperar datos: {str(e)}"}
+        return jsonify({"error": f"Error al recuperar datos: {str(e)}"})
 
 @app.route("/fetch_data", methods=["POST"])
 def fetch_data_endpoint():
     """Recibe la solicitud de OpenAI y devuelve los datos filtrados de Google Sheets."""
     data = request.json
     spreadsheet_id = data.get("spreadsheet_id")
-    category = data.get("Category")  # Sigue en español
-    tag = data.get("Tag")  # Sigue en español
+    category = data.get("category")  # Convertimos de inglés a español
+    tag = data.get("tag")  # Convertimos de inglés a español
 
     if not spreadsheet_id:
         return jsonify({"error": "spreadsheet_id es requerido"}), 400
 
     results = fetch_data(spreadsheet_id, category, tag)
-    return jsonify(results)
+    return results
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+

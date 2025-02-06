@@ -48,9 +48,9 @@ def fetch_data(spreadsheet_id, categoria=None, etiqueta=None):
             etiqueta_match = etiqueta is None or etiqueta in etiquetas_lista
 
             if categoria_match and etiqueta_match:
-# Normalizar claves eliminando espacios extra
-clean_row = {key.strip(): value for key, value in row.items()}
-filtered_data.append(clean_row)
+                # Normalizar claves eliminando espacios extra
+                clean_row = {key.strip(): value for key, value in row.items()}
+                filtered_data.append(clean_row)
 
         return filtered_data if filtered_data else [{"message": "No se encontraron resultados"}]
 

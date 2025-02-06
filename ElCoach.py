@@ -62,8 +62,8 @@ def fetch_data_endpoint():
     """Recibe la solicitud de OpenAI y devuelve los datos filtrados de Google Sheets."""
     data = request.json
     spreadsheet_id = data.get("spreadsheet_id")
-    category = data.get("category")  # Sigue en español
-    tag = data.get("tag")  # Sigue en español
+    category = data.get("Category")  # Sigue en español
+    tag = data.get("Tag")  # Sigue en español
 
     if not spreadsheet_id:
         return jsonify({"error": "spreadsheet_id es requerido"}), 400

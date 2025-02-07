@@ -43,8 +43,7 @@ def fetch_sheet_data():
         # Filter rows based on category and flexible tag matching
         filtered_resources = [
             row for row in rows 
-            if row.get("Category", "").strip().lower() == category.lower().strip() and 
-               row.get("Tag", "").strip().lstrip("#").lower() == normalized_tag
+           if row.get("Category", "").strip().lower().startswith(category.lower().strip())
         ]
 
         return jsonify({"data": filtered_resources})

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Environment variables configuration
 GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
-SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "BBDD ElCoach")
+SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "BBDD_ElCoach")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1ooixOlYScf6Wi0_7mT0UBEc9bESC7gnDfnyo0LLEcCE")
 PORT = int(os.getenv("PORT", 10000))
 

@@ -9,6 +9,11 @@ from oauth2client.service_account import ServiceAccountCredentials
 app = Flask(__name__)
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# ✅ Ruta de Bienvenida para evitar errores 404 en la raíz "/"
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"message": "🚀 API de Google Sheets funcionando correctamente en Render"}), 200
+
 # ✅ Carga credenciales de Google Sheets desde variables de entorno (Render)
 CREDENTIALS_JSON = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
 
@@ -93,6 +98,7 @@ def fetch_sheet_data():
         logging.error(f"❌ ERROR: Fallo al obtener datos: {e}", exc_info=True)
         return jsonify({"error": "❌ ERROR: Error interno del servidor"}), 500
 
-# ✅ Iniciar el servidor en Render
+# ✅ Iniciar el servidor en el puerto correcto de Render
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 10000))  # Usa el puerto asignado por Render
+    app.run(host="0.0.0.0", port=port)

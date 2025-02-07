@@ -23,10 +23,10 @@ else:
 def get_sheet():
     try:
         client = gspread.authorize(credentials)
-        sheet = client.open("BBDD ElCoach").sheet1  # Ahora usa "BBDD ElCoach"
+        sheet = client.open("BBDD ElCoach").sheet1  # Asegurar que el nombre sea correcto
         return sheet
     except Exception as e:
-        logging.error(f"❌ ERROR: No se pudo conectar con Google Sheets: {e}", exc_info=True)
+        logging.error(f"❌ ERROR: Failed to connect to Google Sheets: {e}", exc_info=True)
         return None
 
 # ✅ Endpoint mejorado con búsqueda flexible
@@ -39,34 +39,36 @@ def fetch_sheet_data():
     Si se usan ambos, se filtran por ambas condiciones.
     """
     spreadsheet_id = request.args.get("spreadsheet_id")
-    category = request.args.get("category", "Suplementos")  # ✅ Cambiado a "Suplementos"
-    tag = request.args.get("tag", "dormir")  # ✅ Cambiado a "dormir"
+    category = request.args.get("category")
+    tag = request.args.get("tag")
 
     # 🔍 Log de los parámetros recibidos
     logging.debug(f"🔍 Parámetros recibidos - Spreadsheet ID: {spreadsheet_id}, Categoría: {category}, Tag: {tag}")
 
     if not spreadsheet_id:
-        return jsonify({"error": "❌ ERROR: Falta el ID del spreadsheet"}), 400
+        return jsonify({"error": "❌ ERROR: Missing required parameters"}), 400
 
     sheet = get_sheet()
     if sheet is None:
         return jsonify({"error": "❌ ERROR: No se pudo conectar con la hoja de cálculo"}), 500
 
     try:
-        # ✅ Normalización de entrada: eliminar espacios y convertir a minúsculas
-        normalized_category = category.lower().strip() if category else None
-        normalized_tag = tag.lower().lstrip("#").strip() if tag else None
-
         # ✅ Obtiene todos los registros de la hoja
         rows = sheet.get_all_records()
         logging.info(f"✅ Total de filas obtenidas: {len(rows)}")
+        print("📌 Datos obtenidos de la hoja:", rows)  # <-- Log para depuración
+
+        # ✅ Normalización de entrada: eliminar espacios y convertir a minúsculas
+        normalized_category = category.lower().strip() if category else None
+        normalized_tag = tag.lower().lstrip("#").strip() if tag else None
 
         # ✅ Filtrado flexible según los parámetros
         filtered_resources = [
             row for row in rows
             if (
                 (not normalized_category or row.get("Category", "").strip().lower() == normalized_category) and
-                (not normalized_tag or normalized_tag in row.get("Tag", "").strip().lower().replace("#", ""))
+                (not normalized_tag or 
+                 normalized_tag in row.get("Tag", "").strip().lower().replace("#", ""))
             )
         ]
 

@@ -3,6 +3,7 @@ import gspread
 import json
 import os
 import logging
+from datetime import datetime  # Añadida esta importación
 from oauth2client.service_account import ServiceAccountCredentials
 from functools import wraps
 from typing import Optional, Dict, List, Set
@@ -18,38 +19,26 @@ logger = logging.getLogger(__name__)
 # Environment variables configuration
 GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
 SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "BBDD ElCoach")
-# Usar el ID de environment variable o el valor por defecto si no existe
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1ooixOlYScf6Wi0_7mT0UBEc9bESC7gnDfnyo0LLEcCE")
 PORT = int(os.getenv("PORT", 10000))
 
-def setup_google_credentials():
-    """Initialize and validate Google Sheets credentials"""
-    if not GOOGLE_SHEETS_CREDENTIALS:
-        raise ValueError("❌ ERROR: Missing Google Sheets credentials in environment variables.")
-    
-    credentials_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
-
-def error_handler(func):
-    """Decorator to handle exceptions and provide consistent error responses"""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            logger.error(f"❌ ERROR: {str(e)}", exc_info=True)
-            return jsonify({"error": f"❌ ERROR: {str(e)}"}), 500
-    return wrapper
-
 class SheetManager:
     def __init__(self):
-        self.credentials = setup_google_credentials()
+        self.credentials = self._setup_google_credentials()
         self.client = None
         self.sheet = None
+
+    def _setup_google_credentials(self):
+        """Initialize and validate Google Sheets credentials"""
+        if not GOOGLE_SHEETS_CREDENTIALS:
+            raise ValueError("❌ ERROR: Missing Google Sheets credentials in environment variables.")
+        
+        credentials_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
     def connect(self) -> Optional[gspread.Worksheet]:
         """Establish connection to Google Sheets"""
@@ -63,17 +52,6 @@ class SheetManager:
         """Retrieve and process sheet data"""
         sheet = self.connect()
         return sheet.get_all_records()
-
-    @staticmethod
-    def extract_metadata(rows: List[Dict]) -> tuple[Set[str], Set[str]]:
-        """Extract all categories and tags from the data"""
-        categories = {row.get("Category", "").strip().lower() for row in rows}
-        tags = {
-            tag.strip().lower().lstrip("#")
-            for row in rows
-            for tag in row.get("Tag", "").strip().split()
-        }
-        return categories, tags
 
     @staticmethod
     def filter_resources(
@@ -93,41 +71,99 @@ class SheetManager:
 
 sheet_manager = SheetManager()
 
-@app.route("/api/sheets", methods=["GET"])
-@error_handler
+@app.route("/")
+def root():
+    """Root endpoint with API information"""
+    return jsonify({
+        "status": "active",
+        "version": "1.0",
+        "endpoints": {
+            "/": "This documentation",
+            "/api/sheets": "Get filtered sheet data. Parameters: category, tag",
+            "/health": "Health check endpoint"
+        },
+        "example_usage": {
+            "get_all_data": "/api/sheets",
+            "filter_by_category": "/api/sheets?category=ejemplo",
+            "filter_by_tag": "/api/sheets?tag=muestra",
+            "filter_by_both": "/api/sheets?category=ejemplo&tag=muestra"
+        }
+    })
+
+@app.route("/health")
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "Google Sheets API",
+        "spreadsheet_name": SPREADSHEET_NAME
+    })
+
+@app.route("/api/sheets")
 def fetch_sheet_data():
     """API endpoint to fetch and filter sheet data"""
-    # Validate required parameters
-    spreadsheet_id = request.args.get("spreadsheet_id")
-    if not spreadsheet_id:
-        return jsonify({"error": "❌ ERROR: Missing spreadsheet_id parameter"}), 400
+    try:
+        # Get filter parameters
+        category = request.args.get("category")
+        tag = request.args.get("tag")
+        
+        logger.debug(f"🔍 Request parameters - Category: {category}, Tag: {tag}")
 
-    # Get filter parameters
-    category = request.args.get("category")
-    tag = request.args.get("tag")
-    
-    logger.debug(f"🔍 Request parameters - Spreadsheet ID: {spreadsheet_id}, Category: {category}, Tag: {tag}")
+        # Fetch and process data
+        rows = sheet_manager.get_data()
+        logger.info(f"✅ Retrieved {len(rows)} rows from sheet")
 
-    # Fetch and process data
-    rows = sheet_manager.get_data()
-    logger.info(f"✅ Retrieved {len(rows)} rows from sheet")
+        # Filter resources
+        filtered_resources = sheet_manager.filter_resources(rows, category, tag)
+        logger.info(f"✅ Found {len(filtered_resources)} matching resources")
 
-    # Extract metadata
-    categories, tags = sheet_manager.extract_metadata(rows)
-    logger.info(f"📊 Available categories: {categories}")
-    logger.info(f"🏷️ Available tags: {tags}")
+        if not filtered_resources:
+            return jsonify({
+                "message": "⚠️ No matching resources found",
+                "data": [],
+                "filters_applied": {
+                    "category": category,
+                    "tag": tag
+                }
+            }), 200
 
-    # Filter resources
-    filtered_resources = sheet_manager.filter_resources(rows, category, tag)
-    logger.info(f"✅ Found {len(filtered_resources)} matching resources")
-
-    if not filtered_resources:
         return jsonify({
-            "message": "⚠️ No matching resources found",
-            "data": []
+            "data": filtered_resources,
+            "total_results": len(filtered_resources),
+            "filters_applied": {
+                "category": category,
+                "tag": tag
+            }
         }), 200
 
-    return jsonify({"data": filtered_resources}), 200
+    except Exception as e:
+        logger.error(f"❌ ERROR: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": f"❌ ERROR: {str(e)}",
+            "type": type(e).__name__
+        }), 500
+
+# Error handlers
+@app.errorhandler(404)
+def not_found_error(error):
+    """Handle 404 errors"""
+    return jsonify({
+        "error": "Route not found",
+        "available_endpoints": {
+            "/": "API information",
+            "/api/sheets": "Get sheet data",
+            "/health": "Health check"
+        }
+    }), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors"""
+    return jsonify({
+        "error": "Internal server error",
+        "message": str(error)
+    }), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT)

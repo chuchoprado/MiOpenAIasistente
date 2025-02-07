@@ -85,4 +85,6 @@ def fetch_sheet_data():
 
 # ✅ Iniciar el servidor en Render
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 10000))  # Usa el puerto de Render si está disponible
+    app.run(host="0.0.0.0", port=port)
+

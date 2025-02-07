@@ -5,54 +5,47 @@ import os
 import logging
 from oauth2client.service_account import ServiceAccountCredentials
 
-# ✅ Initialize Flask app
+# ✅ Inicializa Flask
 app = Flask(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
-# ✅ Load Google Sheets credentials from environment variables (for Render)
+# ✅ Carga credenciales de Google Sheets desde variables de entorno (Render)
 CREDENTIALS_JSON = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
 
 if CREDENTIALS_JSON:
-    try:
-        credentials_dict = json.loads(CREDENTIALS_JSON)
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
-        logging.info("✅ Google Sheets credentials loaded successfully.")
-    except Exception as e:
-        logging.error(f"❌ ERROR: Failed to load Google Sheets credentials: {e}", exc_info=True)
-        raise ValueError("❌ ERROR: Invalid Google Sheets credentials format.")
+    credentials_dict = json.loads(CREDENTIALS_JSON)
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 else:
-    logging.error("❌ ERROR: Missing Google Sheets credentials in environment variables.")
     raise ValueError("❌ ERROR: Missing Google Sheets credentials in environment variables.")
 
-# ✅ Connect to Google Sheets
+# ✅ Función para conectar a Google Sheets
 def get_sheet():
     try:
         client = gspread.authorize(credentials)
-        sheet = client.open("Whitelist").sheet1  # Change if needed
-        logging.info("✅ Successfully connected to Google Sheets.")
+        sheet = client.open("Whitelist").sheet1  # Cambia si es necesario
         return sheet
     except Exception as e:
         logging.error(f"❌ ERROR: Failed to connect to Google Sheets: {e}", exc_info=True)
         return None
 
-# ✅ Route for checking server status
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({"message": "🚀 El servidor está funcionando correctamente."}), 200
-
-# ✅ API to fetch resources from Google Sheets
+# ✅ Endpoint mejorado con búsqueda flexible
 @app.route("/api/sheets", methods=["GET"])
 def fetch_sheet_data():
     """
-    Fetches resources from Google Sheets dynamically based on category and tag.
-    The category and tag are user-defined and not hardcoded.
+    Permite buscar recursos en Google Sheets usando solo categoría, solo tag, o ambos.
+    Si el usuario solo proporciona `tag`, se devuelven todos los recursos con ese tag sin importar la categoría.
+    Si el usuario solo proporciona `category`, se devuelven todos los recursos de esa categoría sin importar el tag.
+    Si se usan ambos, se filtran por ambas condiciones.
     """
     spreadsheet_id = request.args.get("spreadsheet_id")
     category = request.args.get("category")
     tag = request.args.get("tag")
 
-    if not spreadsheet_id or not category or not tag:
+    # 🔍 Log de los parámetros recibidos
+    logging.debug(f"🔍 Parámetros recibidos - Spreadsheet ID: {spreadsheet_id}, Categoría: {category}, Tag: {tag}")
+
+    if not spreadsheet_id:
         return jsonify({"error": "❌ ERROR: Missing required parameters"}), 400
 
     sheet = get_sheet()
@@ -60,29 +53,35 @@ def fetch_sheet_data():
         return jsonify({"error": "❌ ERROR: Failed to connect to Google Sheets"}), 500
 
     try:
-        # ✅ Normalize category and tag inputs (handling case sensitivity and removing spaces)
-        normalized_category = category.lower().strip()
-        normalized_tag = tag.lower().lstrip("#").strip()
+        # ✅ Normalización de entrada: eliminar espacios y convertir a minúsculas
+        normalized_category = category.lower().strip() if category else None
+        normalized_tag = tag.lower().lstrip("#").strip() if tag else None
 
-        # ✅ Fetch all rows
+        # ✅ Obtiene todos los registros de la hoja
         rows = sheet.get_all_records()
+        logging.info(f"✅ Total de filas obtenidas: {len(rows)}")
 
-        # ✅ Flexible category & tag filtering (handles variations in user input)
+        # ✅ Filtrado flexible según los parámetros
         filtered_resources = [
-            row for row in rows 
-            if row.get("Category", "").strip().lower() == normalized_category and 
-               normalized_tag in row.get("Tag", "").strip().lower().replace("#", "")
+            row for row in rows
+            if (
+                (not normalized_category or row.get("Category", "").strip().lower() == normalized_category) and
+                (not normalized_tag or normalized_tag in row.get("Tag", "").strip().lower().replace("#", ""))
+            )
         ]
 
+        logging.info(f"✅ Recursos encontrados: {len(filtered_resources)}")
+
         if not filtered_resources:
-            return jsonify({"message": "⚠️ No matching resources found.", "data": []}), 200
+            return jsonify({"message": "⚠️ No se encontraron recursos que coincidan.", "data": []}), 200
 
         return jsonify({"data": filtered_resources}), 200
-    
+
     except Exception as e:
-        logging.error(f"❌ ERROR: Failed to fetch sheet data: {e}", exc_info=True)
+        logging.error(f"❌ ERROR: Fallo al obtener datos: {e}", exc_info=True)
         return jsonify({"error": "❌ ERROR: Server error"}), 500
 
-# ✅ Run Flask server
+# ✅ Iniciar el servidor en Render
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    app.run(host="0.0.0.0", port=8080)
+

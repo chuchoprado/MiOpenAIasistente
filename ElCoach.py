@@ -4,97 +4,128 @@ import json
 import os
 import logging
 from oauth2client.service_account import ServiceAccountCredentials
+from functools import wraps
+from typing import Optional, Dict, List, Set
 
-# ✅ Inicializa Flask
+# Initialize Flask
 app = Flask(__name__)
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# ✅ Carga credenciales de Google Sheets desde variables de entorno
-CREDENTIALS_JSON = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+# Environment variables configuration
+GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "BBDD ElCoach")
+PORT = int(os.getenv("PORT", 10000))
 
-if CREDENTIALS_JSON:
-    credentials_dict = json.loads(CREDENTIALS_JSON)
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
-else:
-    raise ValueError("❌ ERROR: Missing Google Sheets credentials in environment variables.")
+def setup_google_credentials():
+    """Initialize and validate Google Sheets credentials"""
+    if not GOOGLE_SHEETS_CREDENTIALS:
+        raise ValueError("❌ ERROR: Missing Google Sheets credentials in environment variables.")
+    
+    credentials_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
-# ✅ Función para conectar a Google Sheets
-def get_sheet():
-    try:
-        client = gspread.authorize(credentials)
-        sheet = client.open("BBDD ElCoach").sheet1  # ✅ Verifica que este sea el nombre correcto
-        return sheet
-    except Exception as e:
-        logging.error(f"❌ ERROR: No se pudo conectar con Google Sheets: {e}", exc_info=True)
-        return None
+def error_handler(func):
+    """Decorator to handle exceptions and provide consistent error responses"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"❌ ERROR: {str(e)}", exc_info=True)
+            return jsonify({"error": f"❌ ERROR: {str(e)}"}), 500
+    return wrapper
 
-# ✅ Endpoint con búsqueda flexible en etiquetas múltiples
-@app.route("/api/sheets", methods=["GET"])
-def fetch_sheet_data():
-    spreadsheet_id = request.args.get("spreadsheet_id")
-    category = request.args.get("category")
-    tag = request.args.get("tag")
+class SheetManager:
+    def __init__(self):
+        self.credentials = setup_google_credentials()
+        self.client = None
+        self.sheet = None
 
-    logging.debug(f"🔍 Parámetros recibidos - Spreadsheet ID: {spreadsheet_id}, Categoría: {category}, Tag: {tag}")
+    def connect(self) -> Optional[gspread.Worksheet]:
+        """Establish connection to Google Sheets"""
+        if not self.client:
+            self.client = gspread.authorize(self.credentials)
+        if not self.sheet:
+            self.sheet = self.client.open(SPREADSHEET_NAME).sheet1
+        return self.sheet
 
-    if not spreadsheet_id:
-        return jsonify({"error": "❌ ERROR: Missing required parameters"}), 400
+    def get_data(self) -> List[Dict]:
+        """Retrieve and process sheet data"""
+        sheet = self.connect()
+        return sheet.get_all_records()
 
-    sheet = get_sheet()
-    if sheet is None:
-        return jsonify({"error": "❌ ERROR: No se pudo conectar con la hoja de cálculo"}), 500
+    @staticmethod
+    def extract_metadata(rows: List[Dict]) -> tuple[Set[str], Set[str]]:
+        """Extract all categories and tags from the data"""
+        categories = {row.get("Category", "").strip().lower() for row in rows}
+        tags = {
+            tag.strip().lower().lstrip("#")
+            for row in rows
+            for tag in row.get("Tag", "").strip().split()
+        }
+        return categories, tags
 
-    try:
-        # ✅ Obtiene todos los registros de la hoja
-        rows = sheet.get_all_records()
-        logging.info(f"✅ Total de filas obtenidas: {len(rows)}")
-
-        # ✅ Obtener todas las categorías y etiquetas disponibles
-        all_categories = set()
-        all_tags = set()
-
-        for row in rows:
-            category_in_db = row.get("Category", "").strip().lower()
-            tags_in_db = set(tag.strip().lower().lstrip("#") for tag in row.get("Tag", "").strip().split())
-
-            all_categories.add(category_in_db)
-            all_tags.update(tags_in_db)
-
-        logging.info(f"📊 Categorías disponibles en la hoja: {all_categories}")
-        logging.info(f"🏷️ Etiquetas disponibles en la hoja: {all_tags}")
-
-        # ✅ Normalización de entrada
+    @staticmethod
+    def filter_resources(
+        rows: List[Dict],
+        category: Optional[str] = None,
+        tag: Optional[str] = None
+    ) -> List[Dict]:
+        """Filter resources based on category and tag"""
         normalized_category = category.lower().strip() if category else None
         normalized_tag = tag.lower().strip().lstrip("#") if tag else None
 
-        # ✅ Filtrado flexible de datos
-        filtered_resources = []
-        for row in rows:
-            row_category = row.get("Category", "").strip().lower()
-            row_tags = set(tag.strip().lower().lstrip("#") for tag in row.get("Tag", "").strip().split())
+        return [
+            row for row in rows
+            if (not normalized_category or normalized_category in row.get("Category", "").strip().lower()) and
+            (not normalized_tag or normalized_tag in {t.strip().lower().lstrip("#") for t in row.get("Tag", "").strip().split()})
+        ]
 
-            # Filtrar por categoría (si aplica)
-            category_match = not normalized_category or normalized_category in row_category
+sheet_manager = SheetManager()
 
-            # Filtrar por etiqueta (si aplica) - Detecta si está en la lista de etiquetas
-            tag_match = not normalized_tag or normalized_tag in row_tags
+@app.route("/api/sheets", methods=["GET"])
+@error_handler
+def fetch_sheet_data():
+    """API endpoint to fetch and filter sheet data"""
+    # Validate required parameters
+    spreadsheet_id = request.args.get("spreadsheet_id")
+    if not spreadsheet_id:
+        return jsonify({"error": "❌ ERROR: Missing spreadsheet_id parameter"}), 400
 
-            if category_match and tag_match:
-                filtered_resources.append(row)
+    # Get filter parameters
+    category = request.args.get("category")
+    tag = request.args.get("tag")
+    
+    logger.debug(f"🔍 Request parameters - Spreadsheet ID: {spreadsheet_id}, Category: {category}, Tag: {tag}")
 
-        logging.info(f"✅ Recursos encontrados: {len(filtered_resources)}")
+    # Fetch and process data
+    rows = sheet_manager.get_data()
+    logger.info(f"✅ Retrieved {len(rows)} rows from sheet")
 
-        if not filtered_resources:
-            logging.warning(f"⚠️ No se encontraron recursos para categoría '{category}' y tag '{tag}'.")
-            return jsonify({"message": "⚠️ No se encontraron recursos que coincidan.", "data": []}), 200
+    # Extract metadata
+    categories, tags = sheet_manager.extract_metadata(rows)
+    logger.info(f"📊 Available categories: {categories}")
+    logger.info(f"🏷️ Available tags: {tags}")
 
-        return jsonify({"data": filtered_resources}), 200
+    # Filter resources
+    filtered_resources = sheet_manager.filter_resources(rows, category, tag)
+    logger.info(f"✅ Found {len(filtered_resources)} matching resources")
 
-    except Exception as e:
-        logging.error(f"❌ ERROR: Fallo al obtener datos: {e}", exc_info=True)
-        return jsonify({"error": "❌ ERROR: Server error"}), 500
+    if not filtered_resources:
+        return jsonify({
+            "message": "⚠️ No matching resources found",
+            "data": []
+        }), 200
 
-# ✅ Iniciar el servidor en Render
+    return jsonify({"data": filtered_resources}), 200
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=PORT)

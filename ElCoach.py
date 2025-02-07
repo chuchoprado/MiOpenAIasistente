@@ -29,7 +29,7 @@ def get_sheet():
         logging.error(f"❌ ERROR: No se pudo conectar con Google Sheets: {e}", exc_info=True)
         return None
 
-# ✅ Endpoint con depuración mejorada
+# ✅ Endpoint con búsqueda flexible en etiquetas múltiples
 @app.route("/api/sheets", methods=["GET"])
 def fetch_sheet_data():
     spreadsheet_id = request.args.get("spreadsheet_id")
@@ -46,31 +46,39 @@ def fetch_sheet_data():
         return jsonify({"error": "❌ ERROR: No se pudo conectar con la hoja de cálculo"}), 500
 
     try:
-        # ✅ Normalización de entrada (ignora mayúsculas y espacios)
-        normalized_category = category.lower().strip() if category else None
-        normalized_tag = tag.lower().strip().lstrip("#") if tag else None
-
         # ✅ Obtiene todos los registros de la hoja
         rows = sheet.get_all_records()
         logging.info(f"✅ Total de filas obtenidas: {len(rows)}")
 
-        # ✅ Depuración: Ver valores de categorías y etiquetas en la base de datos
-        logging.debug(f"🔍 Datos en la hoja de cálculo (primeras 5 filas): {rows[:5]}")
+        # ✅ Imprimir todas las categorías y etiquetas disponibles en la hoja antes del filtrado
+        all_categories = set()
+        all_tags = set()
 
-        # ✅ Filtrado flexible de datos
+        for row in rows:
+            category_in_db = row.get("Category", "").strip().lower()
+            tags_in_db = row.get("Tag", "").strip().lower().replace("#", "").split()
+            
+            all_categories.add(category_in_db)
+            all_tags.update(tags_in_db)
+
+        logging.info(f"📊 Categorías disponibles en la hoja: {all_categories}")
+        logging.info(f"🏷️ Etiquetas disponibles en la hoja: {all_tags}")
+
+        # ✅ Normalización de entrada
+        normalized_category = category.lower().strip() if category else None
+        normalized_tag = tag.lower().strip().lstrip("#") if tag else None
+
+        # ✅ Filtrado flexible de datos (maneja múltiples etiquetas en una celda)
         filtered_resources = []
         for row in rows:
             row_category = row.get("Category", "").strip().lower()
             row_tags = row.get("Tag", "").strip().lower().replace("#", "").split()
 
-            # ✅ Depuración: Mostrar valores reales antes de filtrar
-            logging.debug(f"🔎 Comparando - Categoria: '{row_category}', Tags: {row_tags}")
-
             # Filtrar por categoría (si aplica)
             category_match = not normalized_category or row_category == normalized_category
 
-            # Filtrar por etiqueta (si aplica)
-            tag_match = not normalized_tag or any(normalized_tag == tag for tag in row_tags)
+            # Filtrar por etiqueta (si aplica) - Ahora busca entre múltiples etiquetas en la celda
+            tag_match = not normalized_tag or normalized_tag in row_tags
 
             if category_match and tag_match:
                 filtered_resources.append(row)
@@ -78,7 +86,7 @@ def fetch_sheet_data():
         logging.info(f"✅ Recursos encontrados: {len(filtered_resources)}")
 
         if not filtered_resources:
-            logging.debug(f"⚠️ No se encontraron recursos con categoría: '{category}' y tag: '{tag}'.")
+            logging.warning(f"⚠️ No se encontraron recursos para categoría '{category}' y tag '{tag}'.")
             return jsonify({"message": "⚠️ No se encontraron recursos que coincidan.", "data": []}), 200
 
         return jsonify({"data": filtered_resources}), 200

@@ -23,13 +23,13 @@ else:
 def get_sheet():
     try:
         client = gspread.authorize(credentials)
-        sheet = client.open("BBDD ElCoach").sheet1  # ✅ Asegura que el nombre de la hoja es correcto
+        sheet = client.open("BBDD ElCoach").sheet1  # ✅ Verifica que este sea el nombre correcto
         return sheet
     except Exception as e:
         logging.error(f"❌ ERROR: No se pudo conectar con Google Sheets: {e}", exc_info=True)
         return None
 
-# ✅ Endpoint con mejor filtrado
+# ✅ Endpoint con depuración mejorada
 @app.route("/api/sheets", methods=["GET"])
 def fetch_sheet_data():
     spreadsheet_id = request.args.get("spreadsheet_id")
@@ -46,7 +46,7 @@ def fetch_sheet_data():
         return jsonify({"error": "❌ ERROR: No se pudo conectar con la hoja de cálculo"}), 500
 
     try:
-        # ✅ Normalización de entrada (sin importar mayúsculas/minúsculas ni `#`)
+        # ✅ Normalización de entrada (ignora mayúsculas y espacios)
         normalized_category = category.lower().strip() if category else None
         normalized_tag = tag.lower().strip().lstrip("#") if tag else None
 
@@ -54,17 +54,23 @@ def fetch_sheet_data():
         rows = sheet.get_all_records()
         logging.info(f"✅ Total de filas obtenidas: {len(rows)}")
 
+        # ✅ Depuración: Ver valores de categorías y etiquetas en la base de datos
+        logging.debug(f"🔍 Datos en la hoja de cálculo (primeras 5 filas): {rows[:5]}")
+
         # ✅ Filtrado flexible de datos
         filtered_resources = []
         for row in rows:
             row_category = row.get("Category", "").strip().lower()
             row_tags = row.get("Tag", "").strip().lower().replace("#", "").split()
 
+            # ✅ Depuración: Mostrar valores reales antes de filtrar
+            logging.debug(f"🔎 Comparando - Categoria: '{row_category}', Tags: {row_tags}")
+
             # Filtrar por categoría (si aplica)
             category_match = not normalized_category or row_category == normalized_category
 
             # Filtrar por etiqueta (si aplica)
-            tag_match = not normalized_tag or normalized_tag in row_tags
+            tag_match = not normalized_tag or any(normalized_tag == tag for tag in row_tags)
 
             if category_match and tag_match:
                 filtered_resources.append(row)
@@ -72,7 +78,7 @@ def fetch_sheet_data():
         logging.info(f"✅ Recursos encontrados: {len(filtered_resources)}")
 
         if not filtered_resources:
-            logging.debug(f"⚠️ No se encontraron recursos con categoría: '{category}' y tag: '{tag}'. Datos en hoja: {rows}")
+            logging.debug(f"⚠️ No se encontraron recursos con categoría: '{category}' y tag: '{tag}'.")
             return jsonify({"message": "⚠️ No se encontraron recursos que coincidan.", "data": []}), 200
 
         return jsonify({"data": filtered_resources}), 200

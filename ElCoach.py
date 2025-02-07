@@ -50,14 +50,14 @@ def fetch_sheet_data():
         rows = sheet.get_all_records()
         logging.info(f"✅ Total de filas obtenidas: {len(rows)}")
 
-        # ✅ Imprimir todas las categorías y etiquetas disponibles en la hoja antes del filtrado
+        # ✅ Obtener todas las categorías y etiquetas disponibles
         all_categories = set()
         all_tags = set()
 
         for row in rows:
             category_in_db = row.get("Category", "").strip().lower()
-            tags_in_db = row.get("Tag", "").strip().lower().replace("#", "").split()
-            
+            tags_in_db = set(tag.strip().lower().lstrip("#") for tag in row.get("Tag", "").strip().split())
+
             all_categories.add(category_in_db)
             all_tags.update(tags_in_db)
 
@@ -68,16 +68,16 @@ def fetch_sheet_data():
         normalized_category = category.lower().strip() if category else None
         normalized_tag = tag.lower().strip().lstrip("#") if tag else None
 
-        # ✅ Filtrado flexible de datos (maneja múltiples etiquetas en una celda)
+        # ✅ Filtrado flexible de datos
         filtered_resources = []
         for row in rows:
             row_category = row.get("Category", "").strip().lower()
-            row_tags = row.get("Tag", "").strip().lower().replace("#", "").split()
+            row_tags = set(tag.strip().lower().lstrip("#") for tag in row.get("Tag", "").strip().split())
 
             # Filtrar por categoría (si aplica)
-            category_match = not normalized_category or row_category == normalized_category
+            category_match = not normalized_category or normalized_category in row_category
 
-            # Filtrar por etiqueta (si aplica) - Ahora busca entre múltiples etiquetas en la celda
+            # Filtrar por etiqueta (si aplica) - Detecta si está en la lista de etiquetas
             tag_match = not normalized_tag or normalized_tag in row_tags
 
             if category_match and tag_match:

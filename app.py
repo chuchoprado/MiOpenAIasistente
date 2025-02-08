@@ -62,7 +62,8 @@ def fetch_sheet_data():
         return jsonify({"error": "❌ ERROR: No se pudo conectar con Google Sheets"}), 500
 
     try:
-        rows = sheet.get_all_records()
+query = f"select * where lower(A) contains '{category.lower()}'"
+filtered_rows = sheet.get_all_records(query)
         if not rows:
             return jsonify({"message": "⚠️ No hay datos en la hoja de cálculo.", "data": []}), 200
 

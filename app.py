@@ -25,7 +25,7 @@ credentials_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
-# ✅ Conectar con Google Sheets
+# ✅ Conectar con Google Sheets con timeout
 def get_sheet():
     try:
         client = gspread.authorize(credentials)
@@ -63,6 +63,10 @@ def fetch_sheet_data():
     try:
         # ✅ Obtener todos los registros
         rows = sheet.get_all_records()
+        if not rows:
+            logger.warning("⚠️ La hoja está vacía o no se pudieron leer datos.")
+            return jsonify({"message": "⚠️ No hay datos en la hoja de cálculo.", "data": []}), 200
+        
         logger.info(f"✅ Se obtuvieron {len(rows)} filas de la hoja.")
 
         # ✅ Filtrar por categoría y etiquetas
@@ -75,9 +79,21 @@ def fetch_sheet_data():
         logger.info(f"✅ Recursos encontrados: {len(filtered_data)}")
 
         if not filtered_data:
-            return jsonify({"message": "⚠️ No se encontraron recursos que coincidan.", "data": []}), 200
+            return jsonify({
+                "message": "⚠️ No se encontraron recursos que coincidan con la búsqueda.",
+                "data": [],
+                "filters_applied": {"category": category, "tag": tag}
+            }), 200
 
-        return jsonify({"data": filtered_data}), 200
+        return jsonify({
+            "data": filtered_data,
+            "total_results": len(filtered_data),
+            "filters_applied": {"category": category, "tag": tag}
+        }), 200
+
+    except gspread.exceptions.APIError as api_error:
+        logger.error(f"❌ ERROR de Google API: {api_error}", exc_info=True)
+        return jsonify({"error": "❌ ERROR: Problema con la API de Google Sheets"}), 500
 
     except Exception as e:
         logger.error(f"❌ ERROR: Ocurrió un fallo al obtener los datos: {e}", exc_info=True)

@@ -3,7 +3,6 @@ import gspread
 import json
 import os
 import logging
-import requests
 from datetime import datetime
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -16,7 +15,7 @@ app = Flask(__name__)
 
 # ✅ Cargar credenciales de Google Sheets desde variables de entorno
 GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
-SPREADSHEET_NAME = "BBDD_ElCoach"  # Nombre de la hoja en Google Sheets
+SPREADSHEET_NAME = "BBDD_ElCoach"
 
 if not GOOGLE_SHEETS_CREDENTIALS:
     logger.error("❌ ERROR: No se encontraron credenciales en las variables de entorno.")
@@ -32,7 +31,7 @@ def connect_to_sheet():
     try:
         client = gspread.authorize(credentials)
         spreadsheet = client.open(SPREADSHEET_NAME)
-        sheet = spreadsheet.sheet1  # Conectarse a la primera hoja
+        sheet = spreadsheet.sheet1  
         logger.info(f"✅ Conexión exitosa a la hoja de cálculo: {SPREADSHEET_NAME}")
         return sheet
     except Exception as e:
@@ -50,7 +49,7 @@ def root():
 def fetch_sheet_data():
     """
     Devuelve los productos, videos o recursos almacenados en Google Sheets.
-    Filtra por categoría y etiquetas de manera flexible y devuelve una respuesta en lenguaje natural.
+    Filtra por categoría y etiquetas de manera flexible y responde en texto para OpenAI.
     """
     category = request.args.get("category", "").strip().lower()
     tag = request.args.get("tag", "").strip().lower().lstrip("#")
@@ -59,12 +58,12 @@ def fetch_sheet_data():
 
     sheet = connect_to_sheet()
     if not sheet:
-        return jsonify({"error": "❌ ERROR: No se pudo conectar con Google Sheets"}), 500
+        return "❌ ERROR: No se pudo conectar con Google Sheets", 500
 
     try:
         rows = sheet.get_all_records()
         if not rows:
-            return jsonify({"message": "⚠️ No hay datos en la hoja de cálculo.", "data": []}), 200
+            return "⚠️ No hay datos en la hoja de cálculo.", 200
 
         logger.info(f"✅ Se encontraron {len(rows)} registros en la hoja.")
 
@@ -76,34 +75,22 @@ def fetch_sheet_data():
         ]
 
         if not filtered_data:
-            return jsonify({
-                "message": "⚠️ No se encontraron recursos que coincidan con la búsqueda.",
-                "data": [],
-                "filters_applied": {"category": category, "tag": tag}
-            }), 200
+            return f"⚠️ No se encontraron recursos para '{category}' con la etiqueta '{tag}'.", 200
 
-        # ✅ Convertir respuesta en lenguaje natural para OpenAI
+        # ✅ Formatear respuesta en texto plano para OpenAI
         response_text = f"Aquí tienes {len(filtered_data)} productos recomendados:\n\n"
         for producto in filtered_data[:3]:  # Limita la respuesta a 3 productos
             response_text += (
-                f"📌 *{producto['Title']}*\n"
-                f"📖 {producto['Description']}\n"
-                f"🔗 [Ver Producto]({producto['Link']})\n\n"
+                f"📌 *{producto.get('Title', 'Título no disponible')}*\n"
+                f"📖 {producto.get('Description', 'Descripción no disponible')}\n"
+                f"🔗 [Ver Producto]({producto.get('Link', 'No disponible')})\n\n"
             )
 
-        return jsonify({
-            "message": response_text.strip(),
-            "data": filtered_data,
-            "total_results": len(filtered_data),
-            "filters_applied": {"category": category, "tag": tag}
-        }), 200
+        return response_text.strip(), 200
 
     except Exception as e:
         logger.error(f"❌ ERROR: No se pudieron obtener los datos: {e}", exc_info=True)
-        return jsonify({
-            "error": "❌ ERROR: No se pudieron procesar los datos",
-            "details": str(e)
-        }), 500
+        return f"❌ ERROR: No se pudieron procesar los datos: {str(e)}", 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

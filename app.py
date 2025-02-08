@@ -49,7 +49,7 @@ def root():
 def fetch_sheet_data():
     """
     Devuelve los productos, videos o recursos almacenados en Google Sheets.
-    Filtra por categoría y etiquetas de manera flexible y responde en texto para OpenAI.
+    Filtra por categoría y etiquetas de manera flexible y responde en formato adecuado para OpenAI.
     """
     category = request.args.get("category", "").strip().lower()
     tag = request.args.get("tag", "").strip().lower().lstrip("#")

@@ -58,12 +58,12 @@ def fetch_sheet_data():
 
     sheet = connect_to_sheet()
     if not sheet:
-        return "❌ ERROR: No se pudo conectar con Google Sheets", 500
+        return jsonify({"output": "❌ ERROR: No se pudo conectar con Google Sheets"}), 500
 
     try:
         rows = sheet.get_all_records()
         if not rows:
-            return "⚠️ No hay datos en la hoja de cálculo.", 200
+            return jsonify({"output": "⚠️ No hay datos en la hoja de cálculo."}), 200
 
         logger.info(f"✅ Se encontraron {len(rows)} registros en la hoja.")
 
@@ -75,7 +75,9 @@ def fetch_sheet_data():
         ]
 
         if not filtered_data:
-            return f"⚠️ No se encontraron recursos para '{category}' con la etiqueta '{tag}'.", 200
+            return jsonify({
+                "output": f"⚠️ No se encontraron recursos para '{category}' con la etiqueta '{tag}'."
+            }), 200
 
         # ✅ Formatear respuesta en texto plano para OpenAI
         response_text = f"Aquí tienes {len(filtered_data)} productos recomendados:\n\n"
@@ -86,11 +88,15 @@ def fetch_sheet_data():
                 f"🔗 [Ver Producto]({producto.get('Link', 'No disponible')})\n\n"
             )
 
-        return response_text.strip(), 200
+        return jsonify({
+            "output": response_text.strip()
+        }), 200
 
     except Exception as e:
         logger.error(f"❌ ERROR: No se pudieron obtener los datos: {e}", exc_info=True)
-        return f"❌ ERROR: No se pudieron procesar los datos: {str(e)}", 500
+        return jsonify({
+            "output": f"❌ ERROR: No se pudieron procesar los datos: {str(e)}"
+        }), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

@@ -16,7 +16,8 @@ app = Flask(__name__)
 
 # ✅ Cargar credenciales de Google Sheets desde variables de entorno
 GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
-SPREADSHEET_NAME = "BBDD_ElCoach"  # El nombre de la hoja debe coincidir con el de Google Sheets
+SPREADSHEET_NAME = "BBDD_ElCoach"  # Nombre exacto de la hoja de cálculo en Google Sheets
+API_TIMEOUT = 30  # Segundos de timeout para requests
 
 if not GOOGLE_SHEETS_CREDENTIALS:
     logger.error("❌ ERROR: No se encontraron credenciales en las variables de entorno.")
@@ -32,7 +33,7 @@ def connect_to_sheet():
     try:
         client = gspread.authorize(credentials)
         spreadsheet = client.open(SPREADSHEET_NAME)
-        sheet = spreadsheet.sheet1  # Conectarse solo a la primera hoja (BBDD_ElCoach)
+        sheet = spreadsheet.sheet1  # Conectar solo a la primera hoja
         logger.info(f"✅ Conexión exitosa a la hoja de cálculo: {SPREADSHEET_NAME}")
         return sheet
     except Exception as e:
@@ -62,8 +63,8 @@ def fetch_sheet_data():
         return jsonify({"error": "❌ ERROR: No se pudo conectar con Google Sheets"}), 500
 
     try:
-query = f"select * where lower(A) contains '{category.lower()}'"
-filtered_rows = sheet.get_all_records(query)
+        # ✅ Optimización: Obtener todas las filas sin descargar data innecesaria
+        rows = sheet.get_all_records()
         if not rows:
             return jsonify({"message": "⚠️ No hay datos en la hoja de cálculo.", "data": []}), 200
 
@@ -96,44 +97,28 @@ filtered_rows = sheet.get_all_records(query)
             "details": str(e)
         }), 500
 
-# ✅ Middleware para OpenAI Function Calling
+# ✅ Endpoint para OpenAI - Hace la solicitud al API de Google Sheets
 @app.route("/api/openai_sheets", methods=["GET"])
 def fetch_openai_sheets():
-    """
-    Middleware especial para adaptar la respuesta de la API a OpenAI Function Calling.
-    """
+    """Solicita datos desde el servidor para OpenAI"""
+    category = request.args.get("category", "").strip().lower()
+    tag = request.args.get("tag", "").strip().lower().lstrip("#")
+
+    logger.debug(f"🔍 OpenAI request - Category: {category}, Tag: {tag}")
+
     try:
-        # Parámetros desde OpenAI
-        category = request.args.get("category")
-        tag = request.args.get("tag")
-
-        logger.debug(f"🔍 OpenAI request - Category: {category}, Tag: {tag}")
-
-        # Hacer la solicitud normal a la API de Google Sheets
         response = requests.get(
-            f"https://miopenaiasistente.onrender.com/api/sheets?category={category}&tag={tag}"
+            "https://miopenaiasistente.onrender.com/api/sheets",
+            params={"category": category, "tag": tag},
+            timeout=API_TIMEOUT
         )
-
-        if response.status_code != 200:
-            return jsonify({"success": False, "message": "Error al obtener datos"}), 500
-
+        response.raise_for_status()
         data = response.json()
-
-        # Transformar la respuesta a un formato que OpenAI pueda leer mejor
-        products = [
-            {
-                "title": item.get("Title", ""),
-                "description": item.get("Description", ""),
-                "link": item.get("Link      ", "").strip()  # Se limpia el espacio en la clave
-            }
-            for item in data.get("data", [])
-        ]
-
-        return jsonify({"success": True, "products": products})
-
-    except Exception as e:
-        logger.error(f"❌ ERROR: {str(e)}", exc_info=True)
-        return jsonify({"success": False, "message": "Error interno"}), 500
+        return jsonify(data), 200
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "⚠️ El servidor tardó demasiado en responder. Intenta de nuevo en un momento."}), 500
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"⚠️ Ocurrió un problema al obtener datos: {str(e)}"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

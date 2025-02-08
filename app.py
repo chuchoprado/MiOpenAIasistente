@@ -6,31 +6,33 @@ import logging
 from datetime import datetime
 from oauth2client.service_account import ServiceAccountCredentials
 
-# ✅ Configurar logging para depuración
+# ✅ Configuración de logs para depuración
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # ✅ Inicializar Flask
 app = Flask(__name__)
 
-# ✅ Cargar credenciales de Google Sheets
+# ✅ Cargar credenciales de Google Sheets desde variables de entorno
 GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
-SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "BBDD_ElCoach")
+SPREADSHEET_NAME = "BBDD_ElCoach"  # El nombre de la hoja debe coincidir con el de Google Sheets
 
 if not GOOGLE_SHEETS_CREDENTIALS:
     logger.error("❌ ERROR: No se encontraron credenciales en las variables de entorno.")
     raise ValueError("No se encontraron credenciales de Google Sheets.")
 
+# ✅ Configuración de credenciales y conexión con Google Sheets
 credentials_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
-# ✅ Conectar con Google Sheets con timeout
-def get_sheet():
+def connect_to_sheet():
+    """Establece la conexión con Google Sheets y devuelve la pestaña de datos."""
     try:
         client = gspread.authorize(credentials)
-        sheet = client.open(SPREADSHEET_NAME).sheet1  # Hoja principal
-        logger.info("✅ Conexión a Google Sheets exitosa.")
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        sheet = spreadsheet.sheet1  # Conectarse solo a la primera hoja (BBDD_ElCoach)
+        logger.info(f"✅ Conexión exitosa a la hoja de cálculo: {SPREADSHEET_NAME}")
         return sheet
     except Exception as e:
         logger.error(f"❌ ERROR: No se pudo conectar con Google Sheets: {e}", exc_info=True)
@@ -38,45 +40,39 @@ def get_sheet():
 
 @app.route("/")
 def root():
-    return jsonify({"status": "API activa", "message": "Bienvenido a la API de Google Sheets"}), 200
-
-@app.route("/health")
-def health_check():
     return jsonify({
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "spreadsheet_name": SPREADSHEET_NAME
+        "status": "API activa",
+        "message": "Bienvenido a la API de Google Sheets"
     }), 200
 
 @app.route("/api/sheets", methods=["GET"])
 def fetch_sheet_data():
-    """ Obtiene y filtra datos de Google Sheets """
+    """
+    Devuelve los productos, videos o recursos almacenados en Google Sheets.
+    Filtra por categoría y etiquetas de manera flexible.
+    """
     category = request.args.get("category", "").strip().lower()
     tag = request.args.get("tag", "").strip().lower().lstrip("#")
 
     logger.debug(f"🔍 Parámetros recibidos - Categoría: {category}, Tag: {tag}")
 
-    sheet = get_sheet()
-    if sheet is None:
+    sheet = connect_to_sheet()
+    if not sheet:
         return jsonify({"error": "❌ ERROR: No se pudo conectar con Google Sheets"}), 500
 
     try:
-        # ✅ Obtener todos los registros
         rows = sheet.get_all_records()
         if not rows:
-            logger.warning("⚠️ La hoja está vacía o no se pudieron leer datos.")
             return jsonify({"message": "⚠️ No hay datos en la hoja de cálculo.", "data": []}), 200
-        
-        logger.info(f"✅ Se obtuvieron {len(rows)} filas de la hoja.")
 
-        # ✅ Filtrar por categoría y etiquetas
+        logger.info(f"✅ Se encontraron {len(rows)} registros en la hoja.")
+
+        # ✅ Filtrar los datos según la categoría y etiquetas
         filtered_data = [
             row for row in rows
             if (not category or category in row.get("Category", "").strip().lower()) and
                (not tag or any(tag in t.strip().lower().lstrip("#") for t in row.get("Tag", "").split()))
         ]
-
-        logger.info(f"✅ Recursos encontrados: {len(filtered_data)}")
 
         if not filtered_data:
             return jsonify({
@@ -91,13 +87,12 @@ def fetch_sheet_data():
             "filters_applied": {"category": category, "tag": tag}
         }), 200
 
-    except gspread.exceptions.APIError as api_error:
-        logger.error(f"❌ ERROR de Google API: {api_error}", exc_info=True)
-        return jsonify({"error": "❌ ERROR: Problema con la API de Google Sheets"}), 500
-
     except Exception as e:
-        logger.error(f"❌ ERROR: Ocurrió un fallo al obtener los datos: {e}", exc_info=True)
-        return jsonify({"error": "❌ ERROR: Fallo en el servidor"}), 500
+        logger.error(f"❌ ERROR: No se pudieron obtener los datos: {e}", exc_info=True)
+        return jsonify({
+            "error": "❌ ERROR: No se pudieron procesar los datos",
+            "details": str(e)
+        }), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

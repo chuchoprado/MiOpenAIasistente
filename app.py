@@ -52,15 +52,16 @@ def home():
     return "El bot está activo."
 
 @app.route(f"/{TOKEN}", methods=["POST"])
-async def webhook():
+def webhook():
     """Procesa las actualizaciones de Telegram."""
     try:
         update = Update.de_json(request.get_json(), application.bot)
-        await application.process_update(update)  # ✅ Ejecutar de manera asincrónica
+        asyncio.run(application.process_update(update))  # ✅ Ejecutar correctamente como async
+        return "OK", 200
     except Exception as e:
         logger.error(f"Error en Webhook: {e}")
         logger.error(traceback.format_exc())
-    return "OK", 200
+        return "Error", 500
 
 # ====== HANDLERS DE TELEGRAM ======
 async def start(update: Update, context):

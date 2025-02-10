@@ -1,102 +1,124 @@
-from flask import Flask, request, jsonify
-import gspread
-import json
 import os
+import sys
 import logging
-from datetime import datetime
+import traceback
+import openai
+import asyncio
+from openai import OpenAI
+import gspread
+from gtts import gTTS
+from flask import Flask, request
 from oauth2client.service_account import ServiceAccountCredentials
+from telegram import Update, Voice
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
-# ✅ Configuración de logs para depuración
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+# ====== CONFIGURACIÓN DE LOGGING ======
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("bot_debug.log"),
+    ],
+)
 logger = logging.getLogger(__name__)
 
-# ✅ Inicializar Flask
-app = Flask(__name__)
+# ====== CONFIGURACIÓN DE TOKENS ======
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7804507023:AAE4FxAeFJawgm7b64eLAswiOCmRZXg0Fzw")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ASSISTANT_ID = os.getenv("ASSISTANT_ID")
+CREDENTIALS_FILE = "/etc/secrets/credentials.json"
+SPREADSHEET_NAME = "Whitelist"
 
-# ✅ Cargar credenciales de Google Sheets desde variables de entorno
-GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
-SPREADSHEET_NAME = "BBDD_ElCoach"
+# ====== CLIENTE OPENAI ======
+try:
+    if not OPENAI_API_KEY:
+        raise ValueError("❌ La variable de entorno OPENAI_API_KEY no está definida.")
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    logger.info("✅ OpenAI Client inicializado correctamente.")
+except Exception as e:
+    logger.error(f"OpenAI Client Initialization Error: {e}")
+    sys.exit(1)
 
-if not GOOGLE_SHEETS_CREDENTIALS:
-    logger.error("❌ ERROR: No se encontraron credenciales en las variables de entorno.")
-    raise ValueError("No se encontraron credenciales de Google Sheets.")
+# ====== CONFIGURACIÓN DEL BOT DE TELEGRAM ======
+application = Application.builder().token(TOKEN).build()
+application.initialize()  # ✅ Asegurar que la aplicación está correctamente inicializada
 
-# ✅ Configuración de credenciales y conexión con Google Sheets
-credentials_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+# ====== SERVIDOR FLASK ======
+app = Flask(__name__)  # ✅ Asegurar que Flask se inicializa correctamente
 
-def connect_to_sheet():
-    """Establece la conexión con Google Sheets y devuelve la pestaña de datos."""
+@app.route("/", methods=["GET"])
+def home():
+    return "El bot está activo."
+
+@app.route(f"/{TOKEN}", methods=["POST"])
+async def webhook():
+    """Procesa las actualizaciones de Telegram."""
     try:
-        client = gspread.authorize(credentials)
-        spreadsheet = client.open(SPREADSHEET_NAME)
-        sheet = spreadsheet.sheet1  
-        logger.info(f"✅ Conexión exitosa a la hoja de cálculo: {SPREADSHEET_NAME}")
-        return sheet
+        update = Update.de_json(request.get_json(), application.bot)
+        await application.process_update(update)  # ✅ Ejecutar de manera asincrónica
     except Exception as e:
-        logger.error(f"❌ ERROR: No se pudo conectar con Google Sheets: {e}", exc_info=True)
-        return None
+        logger.error(f"Error en Webhook: {e}")
+        logger.error(traceback.format_exc())
+    return "OK", 200
 
-@app.route("/")
-def root():
-    return jsonify({
-        "status": "API activa",
-        "message": "Bienvenido a la API de Google Sheets"
-    }), 200
+# ====== HANDLERS DE TELEGRAM ======
+async def start(update: Update, context):
+    """Mensaje de bienvenida y validación de email."""
+    chat_id = update.effective_chat.id
+    await update.message.reply_text("Por favor, proporciona tu email para validar el acceso:")
+    context.user_data["state"] = "waiting_email"
 
-@app.route("/api/sheets", methods=["GET"])
-def fetch_sheet_data():
-    """
-    Devuelve los productos, videos o recursos almacenados en Google Sheets.
-    Filtra por categoría y etiquetas de manera flexible y responde en formato adecuado para OpenAI.
-    """
-    category = request.args.get("category", "").strip().lower()
-    tag = request.args.get("tag", "").strip().lower().lstrip("#")
+async def handle_message(update: Update, context):
+    chat_id = update.effective_chat.id
+    user_message = update.message.text.strip().lower() if update.message.text else ""
 
-    logger.debug(f"🔍 Parámetros recibidos - Categoría: {category}, Tag: {tag}")
+    if context.user_data.get("state") == "waiting_email":
+        try:
+            sheet = get_sheet()
+            emails = [email.lower() for email in sheet.col_values(3)[1:]]
+            if user_message in emails:
+                validated_users[chat_id] = user_message
+                context.user_data["state"] = "validated"
+                await update.message.reply_text("✅ Acceso concedido. Puedes interactuar conmigo ahora.")
+                return
+            else:
+                await update.message.reply_text("❌ Email no válido. Inténtalo nuevamente.")
+                return
+        except Exception as e:
+            logger.error(f"Error durante la validación: {e}")
+            await update.message.reply_text("❌ Hubo un error al validar tu email. Intenta más tarde.")
+            return
 
-    sheet = connect_to_sheet()
-    if not sheet:
-        return jsonify({"output": "❌ ERROR: No se pudo conectar con Google Sheets"}), 500
+    if chat_id not in validated_users:
+        await validate_email(update, context)
+        return
 
-    try:
-        rows = sheet.get_all_records()
-        if not rows:
-            return jsonify({"output": "⚠️ No hay datos en la hoja de cálculo."}), 200
+    await update.message.reply_text(f"Recibí tu mensaje: {user_message}")
 
-        logger.info(f"✅ Se encontraron {len(rows)} registros en la hoja.")
+async def handle_voice(update: Update, context):
+    """Procesa los mensajes de voz y responde con un mensaje de texto."""
+    voice = update.message.voice
+    file = await context.bot.get_file(voice.file_id)
+    file_path = f"voice_{update.message.message_id}.ogg"
+    await file.download(file_path)
+    
+    await update.message.reply_text("✅ Recibí tu mensaje de voz. Aún no puedo procesarlo, pero estoy en ello.")
 
-        # ✅ Filtrar los datos según la categoría y etiquetas
-        filtered_data = [
-            row for row in rows
-            if (not category or category in row.get("Category", "").strip().lower()) and
-               (not tag or any(tag in t.strip().lower().lstrip("#") for t in row.get("Tag", "").split()))
-        ]
+# ====== REGISTRO DE HANDLERS ======
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.TEXT, handle_message))
+application.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
-        if not filtered_data:
-            return jsonify({
-                "output": f"⚠️ No se encontraron recursos para '{category}' con la etiqueta '{tag}'."
-            }), 200
-
-        # ✅ Formatear respuesta en texto plano para OpenAI
-        response_text = f"Aquí tienes {len(filtered_data)} productos recomendados:\n\n"
-        for producto in filtered_data[:3]:  # Limita la respuesta a 3 productos
-            response_text += (
-                f"📌 *{producto.get('Title', 'Título no disponible')}*\n"
-                f"📖 {producto.get('Description', 'Descripción no disponible')}\n"
-                f"🔗 [Ver Producto]({producto.get('Link', 'No disponible')})\n\n"
-            )
-
-        return jsonify({
-            "output": response_text.strip()
-        }), 200
-
-    except Exception as e:
-        logger.error(f"❌ ERROR: No se pudieron obtener los datos: {e}", exc_info=True)
-        return jsonify({
-            "output": f"❌ ERROR: No se pudieron procesar los datos: {str(e)}"
-        }), 500
-
+# ====== EJECUCIÓN ======
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    import threading
+    
+    # Iniciar el bot en un hilo separado
+    def run_telegram():
+        application.run_polling()
+    
+    threading.Thread(target=run_telegram, daemon=True).start()
+    
+    # Iniciar Flask
+    app.run(host="0.0.0.0", port=10000)
